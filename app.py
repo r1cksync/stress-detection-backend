@@ -8,6 +8,7 @@ from tensorflow.keras.metrics import MeanSquaredError
 from flask_cors import CORS
 import logging
 import tempfile
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,8 +23,22 @@ UPLOAD_FOLDER = tempfile.gettempdir()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Load the stress detection model
-# The model file is in the same directory as app.py
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'stress_model.h5')
+
+# Download the model if it doesn't exist
+if not os.path.exists(MODEL_PATH):
+    logging.info("Downloading stress detection model...")
+    model_url = "https://drive.google.com/uc?export=download&id=1AoOcXbIaIYzJVxVzGLh22MD2KwpL1dQi"
+    response = requests.get(model_url, stream=True)
+    if response.status_code == 200:
+        with open(MODEL_PATH, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        logging.info("Model downloaded successfully.")
+    else:
+        logging.error(f"Failed to download model: HTTP {response.status_code}")
+
 try:
     # Explicitly provide the mse metric as a custom object
     model = load_model(MODEL_PATH, custom_objects={'mse': MeanSquaredError()})
