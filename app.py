@@ -9,6 +9,7 @@ from flask_cors import CORS
 import logging
 import tempfile
 import requests
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -28,16 +29,58 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), 'stress_model.h5')
 # Download the model if it doesn't exist
 if not os.path.exists(MODEL_PATH):
     logging.info("Downloading stress detection model...")
-    model_url = "https://drive.google.com/uc?export=download&id=1AoOcXbIaIYzJVxVzGLh22MD2KwpL1dQi"
-    response = requests.get(model_url, stream=True)
-    if response.status_code == 200:
-        with open(MODEL_PATH, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-        logging.info("Model downloaded successfully.")
+    model_url = "https://www.dropbox.com/scl/fi/pxrrn1g441z58q61dmz4n/stress_model.h5?rlkey=1p0hmvtlduavs4nlbohqga6ni&st=i1rivr61&dl=1"
+    session = requests.Session()  # Use a session to handle cookies and redirects
+    
+    # Initial request to the Dropbox URL
+    response = session.get(model_url, stream=True, allow_redirects=True)
+    
+    # Check if the response is an HTML page (indicating a preview page)
+    content_type = response.headers.get('Content-Type', '')
+    if 'text/html' in content_type:
+        logging.info("Received Dropbox preview page. Attempting to handle redirect...")
+        html_content = response.text
+        
+        # Look for a meta refresh tag or a download link in the HTML
+        # Dropbox often uses a meta refresh tag to redirect to the actual download
+        refresh_match = re.search(r'<meta http-equiv="refresh" content="0;url=([^"]+)">', html_content)
+        if refresh_match:
+            direct_url = refresh_match.group(1)
+            logging.info(f"Found redirect URL: {direct_url}")
+            # Follow the redirect to download the file
+            response = session.get(direct_url, stream=True, allow_redirects=True)
+        else:
+            # Alternatively, look for a download button link (less reliable)
+            download_match = re.search(r'href="([^"]+)"[^>]*>Download<', html_content)
+            if download_match:
+                direct_url = download_match.group(1)
+                logging.info(f"Found download URL: {direct_url}")
+                response = session.get(direct_url, stream=True, allow_redirects=True)
+            else:
+                logging.error("Could not find a direct download URL in the HTML.")
+                response = None
     else:
-        logging.error(f"Failed to download model: HTTP {response.status_code}")
+        logging.info("Direct download link worked without redirect.")
+
+    # Proceed with the download if we have a valid response
+    if response and response.status_code == 200:
+        content_length = response.headers.get('Content-Length')
+        expected_size = 109420000  # Expected size of stress_model.h5 in bytes (104.31 MB)
+        if content_length:
+            content_length = int(content_length)
+            logging.info(f"Downloading file of size: {content_length} bytes")
+            if content_length < 10000:  # If the file is too small, it's likely not the model
+                logging.error("Downloaded file is too small to be the model. Aborting.")
+            else:
+                with open(MODEL_PATH, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                logging.info("Model downloaded successfully.")
+        else:
+            logging.error("No Content-Length header in response. Aborting download.")
+    else:
+        logging.error(f"Failed to download model: HTTP {response.status_code if response else 'N/A'}")
 
 try:
     # Explicitly provide the mse metric as a custom object
