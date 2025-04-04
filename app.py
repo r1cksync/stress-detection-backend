@@ -42,7 +42,6 @@ if not os.path.exists(MODEL_PATH):
         html_content = response.text
         
         # Look for a meta refresh tag or a download link in the HTML
-        # Dropbox often uses a meta refresh tag to redirect to the actual download
         refresh_match = re.search(r'<meta http-equiv="refresh" content="0;url=([^"]+)">', html_content)
         if refresh_match:
             direct_url = refresh_match.group(1)
@@ -82,13 +81,18 @@ if not os.path.exists(MODEL_PATH):
     else:
         logging.error(f"Failed to download model: HTTP {response.status_code if response else 'N/A'}")
 
+# Log before loading the model
+logging.info("Starting to load the stress detection model...")
 try:
     # Explicitly provide the mse metric as a custom object
     model = load_model(MODEL_PATH, custom_objects={'mse': MeanSquaredError()})
     logging.info("Stress detection model loaded successfully.")
 except Exception as e:
-    logging.error(f"Failed to load stress detection model: {e}")
+    logging.error(f"Failed to load stress detection model: {str(e)}")
     model = None
+
+# Log after model loading attempt
+logging.info("Model loading attempt completed. Model is None: %s", model is None)
 
 def load_and_preprocess_image(image_path):
     # Load the image in grayscale (FER2013 images are grayscale)
@@ -159,4 +163,5 @@ def predict_stress():
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5001))
+    logging.info(f"Starting Flask app on port {port}...")
     app.run(host='0.0.0.0', port=port)
